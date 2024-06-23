@@ -3,6 +3,7 @@ use std::path::Path;
 use std::io::{self, Write};
 
 fn main() { 
+    // declare our project directories in a vector on the heap with initial values we use lowercase vec! macro
     let projects = vec![
         "../../court",
         "../../da",
@@ -10,20 +11,17 @@ fn main() {
         "../../probation",
         "../../sheriff",
     ];
-
-    let mut children = Vec::new();
-
-    for project in &projects { 
+   
+    // use an iterator to `run dev` on each project dir in the vec 
+    let children: Vec<_> = projects.iter().map(|project| {
         let project_dir = Path::new(project);
 
-        let child = Command::new("pnpm")
-            .args(&["run", "dev"])
-            .current_dir(&project_dir)
-            .spawn()
-            .expect(&format!("Failed to start dev server for {}", project));
-        
-            children.push(child);
-    }
+        Command::new("pnpm")
+        .args(&["run", "dev"])
+        .current_dir(&project_dir)
+        .spawn()
+        .expect(&format!("Failed to start dev server for {}", project))
+    }).collect();
 
     println!("All dev servers started. Press enter to stop all servers.");
     io::stdout().flush().unwrap();
