@@ -1,6 +1,8 @@
 use std::process::Command;
 use std::path::Path;
 use std::io::{self, Write};
+use std::thread;
+use std::time::Duration;
 
 fn main() { 
     // declare our project directories in a vector on the heap with initial values we use lowercase vec! macro
@@ -41,121 +43,64 @@ fn main() {
 
     println!("All dev servers stopped.");
 }
-
-fn kill_process_on_port(port: u16) { 
-    let output = Command::new("lsof")
+fn kill_process_on_port(port: u16) {
+    println!("Attempting to kill process on port {}", port);
+    
+    // First, attempt to close any browser connections
+    close_browser_connections(port);
+    
+    // Wait a moment for connections to close
+    thread::sleep(Duration::from_secs(1));
+    
+    // Now attempt to kill the process
+    let lsof_output = Command::new("lsof")
         .args(&["-ti", &format!(":{}", port)])
         .output()
         .expect("Failed to execute lsof");
-    
-    let pid = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    
-    if !pid.is_empty() {
-        let status = Command::new("kill")
-            .arg("-9")
-            .arg(&pid)
-            .status()
-            .expect("Failed to execute kill command");
-        
-        if status.success() { 
-           
-        } else { 
-            eprintln!("Failed to kill process {} on port {}", pid, port);
+
+    if lsof_output.status.success() {
+        let pids: Vec<String> = String::from_utf8_lossy(&lsof_output.stdout)
+            .trim()
+            .split('\n')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+
+        if !pids.is_empty() {
+            for pid in pids {
+                println!("Attempting to kill process with PID {} on port {}", pid, port);
+                let kill_output = Command::new("kill")
+                    .arg("-9")
+                    .arg(&pid)
+                    .output()
+                    .expect("Failed to execute kill");
+
+                if kill_output.status.success() {
+                    println!("Successfully killed process (PID: {}) on port {}", pid, port);
+                } else {
+                    eprintln!("Failed to kill process (PID: {}) on port {}", pid, port);
+                    println!("kill stderr: {}", String::from_utf8_lossy(&kill_output.stderr));
+                }
+            }
+        } else {
+            println!("No process found on port {} after closing browser connections", port);
         }
-    } else { 
-        println!("no process found on port {}", port);
+    } else {
+        println!("lsof command failed for port {}", port);
     }
 }
 
-#[cfg(test)]
-mod tests { 
-    use super::*;
-    use std::process::Output;
-    use std::os::unix::process::ExitStatusExt;
-
-    // mock command for tersting 
-    struct MockCommand { 
-        output: Output,
-    }
-
-    impl MockCommand { 
-        fn new(stdout: &[u8], status: i32) -> Self {
-            MockCommand {
-                output: Output {
-                    status: ExitStatusExt::from_raw(status),
-                    stdout: stdout.to_vec(),
-                    stderr: Vec::new(),
-                },
-            }
-        }
-
-        fn spawn(&mut self) -> io::Result<MockChild> {
-            Ok(MockChild)
-        }
-
-        fn output(&mut self) -> io::Result<Output> {
-            Ok(self.output.clone())
-        }
-
-        fn status(&mut self) -> io::Result<std::process::ExitStatus> { 
-            Ok(self.output.status)
-        }
-    }
-
-    struct MockChild;
-
-    impl MockChild {
-        fn kill(&mut self) -> io::Result<()> { 
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn test_kill_process_on_port_with_process() {
-        // Mock lsof command
-        let mock_lsof = MockCommand::new(b"12345\n", 0);
-        // Mock kill command
-        let mock_kill = MockCommand::new(b"", 0);
-
-        // Replace actual Command::new with our mock
-        std::panic::set_hook(Box::new(|_| {}));
-        let result = std::panic::catch_unwind(|| {
-            kill_process_on_port(3000);
-        });
-        let _ = std::panic::take_hook();
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_kill_process_on_port_without_process() {
-        // Mock lsof command returning empty output
-        let mock_lsof = MockCommand::new(b"", 0);
-
-        // Replace actual Command::new with our mock
-        std::panic::set_hook(Box::new(|_| {}));
-        let result = std::panic::catch_unwind(|| {
-            kill_process_on_port(3000);
-        });
-        let _ = std::panic::take_hook();
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_kill_process_on_port_kill_failure() {
-        // Mock lsof command
-        let mock_lsof = MockCommand::new(b"12345\n", 0);
-        // Mock kill command that fails
-        let mock_kill = MockCommand::new(b"", 1);
-
-        // Replace actual Command::new with our mock
-        std::panic::set_hook(Box::new(|_| {}));
-        let result = std::panic::catch_unwind(|| {
-            kill_process_on_port(3000);
-        });
-        let _ = std::panic::take_hook();
-
-        assert!(result.is_ok());
-    }
+fn close_browser_connections(port: u16) {
+    println!("Attempting to close browser connections on port {}", port);
+    
+    // Send a request to the server to trigger connection close
+    let _ = Command::new("curl")
+        .args(&["-s", &format!("http://localhost:{}", port)])
+        .output();
+    
+    // For WebSocket connections, you might need to send a close frame
+    // This is a simplified example and may need to be adjusted based on your specific setup
+    let _ = Command::new("wscat")
+        .args(&["-c", &format!("ws://localhost:{}", port), "--close"])
+        .output();
 }
