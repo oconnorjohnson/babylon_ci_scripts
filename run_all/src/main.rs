@@ -50,7 +50,7 @@ fn kill_process_on_port(port: u16) {
     close_browser_connections(port);
     
     // Wait a moment for connections to close
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(Duration::from_millis(100));
     
     // Now attempt to kill the process
     let lsof_output = Command::new("lsof")
